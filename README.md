@@ -1,0 +1,77 @@
+# PharmaGuard Multimodal Inspector (PGMI)
+
+**One-liner pitch**: A real-time, multimodal AI agent for detecting defects in pharmaceutical blister packaging, powered by AMD ROCm and Vision-Language Models.
+
+## Overview
+PharmaGuard Multimodal Inspector (PGMI) is a production-grade prototype built for the TCS & AMD AI Hackathon 2026 (Track 2 - Multimodal). It performs real-time quality control on blister packaging lines by integrating:
+1. **Vision/Video Analysis**: High-speed object detection using YOLOv11 to isolate blister packs and tablets.
+2. **Multimodal Reasoning**: Utilizing Vision-Language Models (like Qwen2.5-VL or Florence-2) to analyze visual anomalies.
+3. **LLM Agent**: Agentic decision-making using fast LLMs (like Llama-3.1 or Qwen) to classify severity, ensure GMP compliance, and recommend actions (e.g., "Divert pack").
+4. **Speech Alerts**: Text-to-Speech integration for hands-free operator warnings.
+
+### Expected Impact
+- **Defect Reduction**: 30-50% reduction in manual inspection oversights.
+- **OEE Uplift**: Improved Overall Equipment Effectiveness through real-time diversion without stopping the line for false positives.
+
+## Architecture
+
+```mermaid
+graph TD
+    A[Camera Feed / Video Loop] --> B[Vision Detector YOLOv11]
+    B --> C{Defect Suspected?}
+    C -- No --> D[Pass / Log]
+    C -- Yes --> E[Crop & Send to VLM]
+    E --> F[Multimodal Reasoner Qwen2.5-VL]
+    F --> G[LLM Agent Llama-3.1-8B]
+    G --> H[Severity & Action JSON]
+    H --> I[Gradio UI Overlay]
+    H --> J[Speech Alert TTS]
+```
+
+## Setup Instructions (Ubuntu / ROCm 7.2)
+
+1. **Clone the repository**:
+   ```bash
+   git clone <repo_url>
+   cd PharmaGuard
+   ```
+
+2. **Create a virtual environment**:
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate
+   ```
+
+3. **Install Dependencies (ROCm 7.2 optimized)**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+   *Note*: The `requirements.txt` points to `https://download.pytorch.org/whl/rocm7.2`.
+
+4. **Hugging Face Login (For gated models like Llama-3.1)**:
+   ```bash
+   huggingface-cli login
+   ```
+
+5. **Download Demo Data**:
+   ```bash
+   python download_data.py
+   ```
+
+## Running the Application
+
+Start the Gradio web interface:
+```bash
+python app.py
+```
+Then navigate to `http://127.0.0.1:7860` in your browser.
+
+## Performance Metrics
+- **Target Hardware**: AMD MI300X
+- **Optimization Strategy**: 4-bit quantization where applicable, vLLM for high-throughput LLM serving.
+- **Latency**: Sub-2 second end-to-end processing per suspected defective frame.
+
+## Day-by-Day Build Notes
+- **Day 1**: Project scaffolding, YOLOv11 integration, and Gradio UI mockups.
+- **Day 2**: Multimodal VLM integration and LLM Agent reasoning.
+- **Day 3**: Speech module, optimizations (quantization), and end-to-end testing.

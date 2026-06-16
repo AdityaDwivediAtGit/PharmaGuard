@@ -1,0 +1,19 @@
+--extra-index-url https://download.pytorch.org/whl/rocm7.2
+
+torch
+torchvision
+torchaudio
+transformers
+accelerate
+optimum-amd
+vllm
+gradio
+opencv-python-headless
+ultralytics
+gTTS
+soundfile
+numpy
+pillow
+requests
+tqdm
+bitsandbytes
