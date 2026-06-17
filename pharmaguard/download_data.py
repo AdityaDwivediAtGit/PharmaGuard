@@ -50,7 +50,7 @@ def create_eval_dataset():
         filepath = os.path.join(eval_dir, filename)
         
         # 50% chance of defect
-        has_defect = np.random.choice([True, False])
+        has_defect = bool(np.random.choice([True, False]))
         generate_blister_pack_image(filepath, has_defect)
         
         labels[filename] = {
