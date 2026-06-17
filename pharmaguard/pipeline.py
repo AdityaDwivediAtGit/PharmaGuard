@@ -68,6 +68,7 @@ class Pipeline:
             action = assessment.get("action", "pass")
             reason = assessment.get("reason", "No reason provided.")
             
+            metrics['defect_detected'] = is_defect
             logs.append(f"Agent Action: {action.upper()} | Severity: {severity.upper()} | Reason: {reason}")
 
         # 4. Speech Alert Stage

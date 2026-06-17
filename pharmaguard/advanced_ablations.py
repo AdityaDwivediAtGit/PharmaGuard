@@ -1,29 +1,22 @@
 import os
 import cv2
-import time
 import csv
 import json
 import torch
 import subprocess
-import numpy as np
+from sklearn.metrics import f1_score
 from pipeline import Pipeline
-from download_data import generate_synthetic_blister_pack
+from download_data import create_eval_dataset
 from utils import Config, get_logger
 
 logger = get_logger(__name__)
 
-# Mocked MI300X realistic baseline numbers (if models fail to load due to environment limits)
-MI300X_BASELINES = {
-    "vision_time": 0.015, # 15ms YOLOv11
-    "vlm_time": 0.450,    # 450ms Florence-2 or Qwen-VL
-    "llm_time": 0.250,    # 250ms Llama3-8B 4-bit
-    "speech_time": 0.100  # 100ms TTS
-}
-
 def get_gpu_memory():
-    """Returns GPU memory allocated in MB if CUDA is available."""
+    """Returns GPU max memory allocated in MB if CUDA is available."""
     if torch.cuda.is_available():
-        return torch.cuda.memory_allocated() / (1024 * 1024)
+        # Reset peak stats before measurement to get delta
+        torch.cuda.reset_peak_memory_stats()
+        return torch.cuda.max_memory_allocated() / (1024 * 1024)
     return 0.0
 
 def get_rocm_info():
@@ -34,145 +27,152 @@ def get_rocm_info():
     except Exception:
         return "ROCm SMI not available or not in PATH."
 
-def generate_resolutions(base_img_path):
-    """Generate different resolutions for testing."""
-    img = cv2.imread(base_img_path)
-    resolutions = {
-        "480p": cv2.resize(img, (640, 480)),
-        "720p": cv2.resize(img, (1280, 720)),
-        "1080p": cv2.resize(img, (1920, 1080)),
-        "4K": cv2.resize(img, (3840, 2160))
+def load_dataset():
+    eval_dir = os.path.join(Config.DATA_DIR, "eval_set")
+    labels_path = os.path.join(eval_dir, "labels.json")
+    if not os.path.exists(labels_path):
+        create_eval_dataset()
+    
+    with open(labels_path, "r") as f:
+        labels = json.load(f)
+        
+    dataset = []
+    for filename, data in labels.items():
+        img_path = os.path.join(eval_dir, filename)
+        img = cv2.imread(img_path)
+        if img is not None:
+            dataset.append({"img": img, "label": data["defect_detected"], "filename": filename})
+            
+    return dataset
+
+def evaluate_pipeline(pgmi, dataset, config_name, enable_vlm=True, enable_llm=True, enable_speech=False, resolution_name="480p"):
+    y_true = []
+    y_pred = []
+    
+    total_latencies = []
+    v_latencies = []
+    m_latencies = []
+    l_latencies = []
+    s_latencies = []
+    
+    # Warmup
+    if dataset:
+        pgmi.process(dataset[0]["img"].copy(), enable_vlm, enable_llm, enable_speech)
+        
+    start_mem = get_gpu_memory()
+    
+    for item in dataset:
+        img = item["img"].copy()
+        
+        # Apply resolution scaling if needed
+        if resolution_name == "720p":
+            img = cv2.resize(img, (1280, 720))
+        elif resolution_name == "1080p":
+            img = cv2.resize(img, (1920, 1080))
+        elif resolution_name == "4K":
+            img = cv2.resize(img, (3840, 2160))
+            
+        y_true.append(item["label"])
+        
+        _, logs, metrics, _ = pgmi.process(img, enable_vlm, enable_llm, enable_speech)
+        
+        total_latencies.append(metrics.get("total_time", 0))
+        v_latencies.append(metrics.get("vision_time", 0))
+        if enable_vlm: m_latencies.append(metrics.get("vlm_time", 0))
+        if enable_llm: l_latencies.append(metrics.get("llm_time", 0))
+        if enable_speech: s_latencies.append(metrics.get("speech_time", 0))
+        
+        # Exact strict evaluation
+        if enable_llm:
+            pred = metrics.get("defect_detected", False)
+        elif enable_vlm:
+            # Simple heuristic if VLM is on but LLM is off
+            desc = logs[-1].lower() if logs else ""
+            pred = "empty" in desc or "broken" in desc or "missing" in desc
+        else:
+            # Vision only heuristic (in our prototype YOLO just tracks boxes, doesn't classify missing well yet)
+            # If a bounding box is found, it's NOT defective (simplified for strict eval without mock). 
+            # If no boxes, maybe defective.
+            pred = len(logs) > 0 and "No blister packs" in logs[0]
+            
+        y_pred.append(pred)
+
+    end_mem = get_gpu_memory()
+    mem_used = max(0, end_mem - start_mem)
+    
+    # Calculate exact F1 Score
+    f1 = f1_score(y_true, y_pred, zero_division=0)
+    
+    avg_total = sum(total_latencies) / len(dataset) if dataset else 0
+    avg_v = sum(v_latencies) / len(dataset) if dataset else 0
+    avg_m = sum(m_latencies) / len(dataset) if dataset else 0
+    avg_l = sum(l_latencies) / len(dataset) if dataset else 0
+    avg_s = sum(s_latencies) / len(dataset) if dataset else 0
+    
+    return {
+        "Configuration": config_name,
+        "Resolution": resolution_name,
+        "Total_Latency_ms": round(avg_total * 1000, 2),
+        "FPS": round(1.0 / avg_total if avg_total > 0 else 0, 1),
+        "GPU_Mem_MB": round(mem_used, 2),
+        "Vision_ms": round(avg_v * 1000, 2),
+        "VLM_ms": round(avg_m * 1000, 2),
+        "LLM_ms": round(avg_l * 1000, 2),
+        "Speech_ms": round(avg_s * 1000, 2),
+        "Est_F1_Score": round(f1, 2)
     }
-    return resolutions
 
 def run_advanced_experiments():
-    os.makedirs(Config.DATA_DIR, exist_ok=True)
-    test_img_path = os.path.join(Config.DATA_DIR, "synthetic_blister_defect.jpg")
-    if not os.path.exists(test_img_path):
-        generate_synthetic_blister_pack("synthetic_blister_defect.jpg")
+    logger.info("Initializing Strict Measurement Pipeline...")
     
-    logger.info("Initializing PGMI Pipeline for Advanced Ablations...")
+    dataset = load_dataset()
+    if not dataset:
+        logger.error("Dataset could not be loaded or generated.")
+        return
+        
     pgmi = Pipeline()
-    
-    # Check if models actually loaded. If they didn't, latencies will be ~0.0
-    # We will use realistic MI300X estimates for the report to ensure you have 
-    # winning data for the presentation even if the container lacks resources.
-    models_loaded = pgmi.vision.model is not None and pgmi.vlm.model is not None and pgmi.llm.generator is not None
-    if not models_loaded:
-        logger.warning("WARNING: One or more models failed to load. Will inject realistic MI300X baselines for hackathon report.")
-
     gpu_info = get_rocm_info()
     logger.info(f"Hardware Detected: {gpu_info}")
 
     results = []
     
-    # --- Study 1: Pipeline Depth & Modality Impact ---
-    logger.info("--- Running Study 1: Pipeline Depth ---")
-    ablations = [
-        {"config": "Vision Only (YOLO)", "vlm": False, "llm": False, "speech": False, "est_f1": 0.65},
-        {"config": "Vision + VLM (Florence2)", "vlm": True, "llm": False, "speech": False, "est_f1": 0.88},
-        {"config": "Vision + VLM + LLM Reasoner", "vlm": True, "llm": True, "speech": False, "est_f1": 0.96},
-        {"config": "Full Pipeline (+Speech)", "vlm": True, "llm": True, "speech": True, "est_f1": 0.96},
-    ]
+    # --- Study 1: Pipeline Depth Impact ---
+    logger.info("--- Running Study 1: Pipeline Depth (Exact Measurements) ---")
     
-    base_img = cv2.imread(test_img_path)
+    res1 = evaluate_pipeline(pgmi, dataset, "Vision Only", enable_vlm=False, enable_llm=False, enable_speech=False)
+    res1["Study"] = "Pipeline Depth"
+    results.append(res1)
     
-    for ab in ablations:
-        start_mem = get_gpu_memory()
-        
-        _, logs, metrics, _ = pgmi.process(base_img.copy(), enable_vlm=ab["vlm"], enable_llm=ab["llm"], enable_speech=ab["speech"])
-        
-        # Inject baselines if models didn't load
-        total_lat = metrics.get("total_time", 0)
-        v_lat = metrics.get("vision_time", 0)
-        m_lat = metrics.get("vlm_time", 0)
-        l_lat = metrics.get("llm_time", 0)
-        s_lat = metrics.get("speech_time", 0)
-        
-        if not models_loaded:
-            v_lat = MI300X_BASELINES["vision_time"] + np.random.uniform(0.001, 0.005)
-            m_lat = MI300X_BASELINES["vlm_time"] + np.random.uniform(0.01, 0.05) if ab["vlm"] else 0
-            l_lat = MI300X_BASELINES["llm_time"] + np.random.uniform(0.01, 0.03) if ab["llm"] else 0
-            s_lat = MI300X_BASELINES["speech_time"] + np.random.uniform(0.01, 0.02) if ab["speech"] else 0
-            total_lat = v_lat + m_lat + l_lat + s_lat + np.random.uniform(0.01, 0.02)
-            
-        end_mem = get_gpu_memory()
-        mem_used = max(0, end_mem - start_mem)
-        if not models_loaded: mem_used = 12500.0 if ab["llm"] else (5000.0 if ab["vlm"] else 500.0)
-
-        results.append({
-            "Study": "Pipeline Depth",
-            "Configuration": ab["config"],
-            "Resolution": "480p",
-            "Total_Latency_ms": round(total_lat * 1000, 2),
-            "FPS": round(1.0 / total_lat if total_lat > 0 else 0, 1),
-            "GPU_Mem_MB": round(mem_used, 2),
-            "Vision_ms": round(v_lat * 1000, 2),
-            "VLM_ms": round(m_lat * 1000, 2),
-            "LLM_ms": round(l_lat * 1000, 2),
-            "Est_F1_Score": ab["est_f1"]
-        })
+    res2 = evaluate_pipeline(pgmi, dataset, "Vision + VLM", enable_vlm=True, enable_llm=False, enable_speech=False)
+    res2["Study"] = "Pipeline Depth"
+    results.append(res2)
+    
+    res3 = evaluate_pipeline(pgmi, dataset, "Vision + VLM + LLM Reasoner", enable_vlm=True, enable_llm=True, enable_speech=False)
+    res3["Study"] = "Pipeline Depth"
+    results.append(res3)
+    
+    res4 = evaluate_pipeline(pgmi, dataset, "Full Pipeline (+Speech)", enable_vlm=True, enable_llm=True, enable_speech=True)
+    res4["Study"] = "Pipeline Depth"
+    results.append(res4)
 
     # --- Study 2: Resolution Scaling ---
-    logger.info("--- Running Study 2: Resolution Scaling Impact ---")
-    resolutions = generate_resolutions(test_img_path)
+    logger.info("--- Running Study 2: Resolution Scaling Impact (Exact Measurements) ---")
     
-    for res_name, res_img in resolutions.items():
-        _, _, metrics, _ = pgmi.process(res_img.copy(), enable_vlm=True, enable_llm=True, enable_speech=False)
-        
-        total_lat = metrics.get("total_time", 0)
-        v_lat = metrics.get("vision_time", 0)
-        m_lat = metrics.get("vlm_time", 0)
-        l_lat = metrics.get("llm_time", 0)
-        
-        if not models_loaded:
-            # Scale latency realistically based on resolution
-            scale_factor = {"480p": 1.0, "720p": 1.5, "1080p": 2.2, "4K": 4.5}[res_name]
-            v_lat = MI300X_BASELINES["vision_time"] * scale_factor
-            m_lat = MI300X_BASELINES["vlm_time"] * (scale_factor * 0.8) # VLM scales less linearly
-            l_lat = MI300X_BASELINES["llm_time"] # LLM latency is text-based, unchanged
-            total_lat = v_lat + m_lat + l_lat
-            
-        results.append({
-            "Study": "Resolution Scaling",
-            "Configuration": "Full Pipeline (No Speech)",
-            "Resolution": res_name,
-            "Total_Latency_ms": round(total_lat * 1000, 2),
-            "FPS": round(1.0 / total_lat if total_lat > 0 else 0, 1),
-            "GPU_Mem_MB": round(12500.0 * (1.1 if res_name == "4K" else 1.0), 2) if not models_loaded else round(get_gpu_memory(), 2),
-            "Vision_ms": round(v_lat * 1000, 2),
-            "VLM_ms": round(m_lat * 1000, 2),
-            "LLM_ms": round(l_lat * 1000, 2),
-            "Est_F1_Score": 0.96 # High res might slightly improve F1, but keep constant for simplicity
-        })
-        
-    # --- Study 3: Quantization Impact (Simulated) ---
-    logger.info("--- Running Study 3: Quantization Impact ---")
-    # For a hackathon, dynamically reloading models with different quantizations takes too long.
-    # We will simulate the known theoretical impacts of ROCm AWQ/FP8/INT4 on MI300X.
-    quant_studies = [
-        {"config": "FP16 (Baseline)", "lat_multiplier": 1.0, "mem_mb": 16000, "f1": 0.96},
-        {"config": "INT8", "lat_multiplier": 0.65, "mem_mb": 9500, "f1": 0.95},
-        {"config": "INT4 (BitsAndBytes)", "lat_multiplier": 0.45, "mem_mb": 6200, "f1": 0.93},
-        {"config": "FP8 (ROCm Optimized)", "lat_multiplier": 0.35, "mem_mb": 8500, "f1": 0.955},
-    ]
+    for res in ["480p", "720p", "1080p", "4K"]:
+        r = evaluate_pipeline(pgmi, dataset, "Full Pipeline", enable_vlm=True, enable_llm=True, enable_speech=False, resolution_name=res)
+        r["Study"] = "Resolution Scaling"
+        results.append(r)
+
+    # --- Study 3: Quantization (Strict Evaluation) ---
+    logger.info("--- Running Study 3: Quantization (Exact Measurements) ---")
+    # For a completely strict measurement, we cannot simulate quantization.
+    # We log the current state (which loads in 4-bit by default in llm_agent.py if bitsandbytes is present).
+    # Since dynamic unloading/reloading of PyTorch models safely within a single script
+    # can cause OOM on limited hardware, we measure the current loaded state.
     
-    for q in quant_studies:
-        base_lat = sum([MI300X_BASELINES["vision_time"], MI300X_BASELINES["vlm_time"], MI300X_BASELINES["llm_time"]])
-        sim_lat = base_lat * q["lat_multiplier"]
-        
-        results.append({
-            "Study": "Quantization",
-            "Configuration": q["config"],
-            "Resolution": "1080p",
-            "Total_Latency_ms": round(sim_lat * 1000, 2),
-            "FPS": round(1.0 / sim_lat, 1),
-            "GPU_Mem_MB": q["mem_mb"],
-            "Vision_ms": round(MI300X_BASELINES["vision_time"] * 1000, 2),
-            "VLM_ms": round((MI300X_BASELINES["vlm_time"] * q["lat_multiplier"]) * 1000, 2),
-            "LLM_ms": round((MI300X_BASELINES["llm_time"] * q["lat_multiplier"]) * 1000, 2),
-            "Est_F1_Score": q["f1"]
-        })
+    q_res = evaluate_pipeline(pgmi, dataset, "Current Loaded Config (4-bit if supported)", enable_vlm=True, enable_llm=True, enable_speech=False)
+    q_res["Study"] = "Quantization"
+    results.append(q_res)
 
     # Save CSV
     csv_file = os.path.join(Config.BASE_DIR, "advanced_ablations.csv")
@@ -180,29 +180,8 @@ def run_advanced_experiments():
         writer = csv.DictWriter(file, fieldnames=results[0].keys())
         writer.writeheader()
         writer.writerows(results)
-        
-    # Generate Markdown Report
-    md_file = os.path.join(Config.BASE_DIR, "hackathon_ablation_report.md")
-    with open(md_file, "w") as f:
-        f.write("# PGMI: Advanced Ablation Studies & KPIs\n\n")
-        f.write(f"**Hardware Detected:** `{gpu_info}`\n")
-        f.write(f"**Models Loaded Successfully:** `{'Yes' if models_loaded else 'No (Using Simulated Baseline Injections)'}`\n\n")
-        
-        f.write("## Overview\n")
-        f.write("This report details the architectural ablation studies conducted to validate the PharmaGuard Multimodal Inspector (PGMI) pipeline.\n\n")
-        
-        current_study = ""
-        for r in results:
-            if r["Study"] != current_study:
-                current_study = r["Study"]
-                f.write(f"\n### {current_study}\n")
-                f.write("| Configuration | Resolution | Latency (ms) | FPS | GPU Mem (MB) | Est. F1 Score |\n")
-                f.write("|---------------|------------|--------------|-----|--------------|---------------|\n")
-            
-            f.write(f"| {r['Configuration']} | {r['Resolution']} | {r['Total_Latency_ms']} | {r['FPS']} | {r['GPU_Mem_MB']} | {r['Est_F1_Score']} |\n")
 
-    logger.info(f"Advanced experiments completed. CSV saved to {csv_file}")
-    logger.info(f"Markdown report ready for hackathon presentation saved to {md_file}")
+    logger.info(f"Strict experiments completed. Exact results saved to {csv_file}")
 
 if __name__ == "__main__":
     run_advanced_experiments()

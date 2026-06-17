@@ -50,15 +50,17 @@ def benchmark():
         latencies.append(time.time() - start)
         logs_agg.extend(logs)
         
-    avg_latency = sum(latencies) / len(latencies)
+    avg_latency = sum(latencies) / len(latencies) if latencies else 0
     
-    result = f"Ran benchmark over {len(latencies)} frames.\nAverage Latency: {avg_latency:.2f}s per frame.\nEstimated FPS: {1/avg_latency:.2f}"
+    result = f"Ran benchmark over {len(latencies)} frames.\nAverage Latency: {avg_latency:.2f}s per frame.\nEstimated FPS: {1/avg_latency if avg_latency > 0 else 0:.2f}"
     
-    # Mock some data for the metrics table
+    # Exact memory usage from torch
+    import torch
+    mem_used = torch.cuda.max_memory_allocated() / (1024**2) if torch.cuda.is_available() else 0.0
+    
     metrics_data = {
         "Avg Latency (s)": round(avg_latency, 2),
-        "Peak GPU Mem (GB)": "~12.4", 
-        "Est. Accuracy F1": "95.2%", 
+        "Peak GPU Mem (MB)": round(mem_used, 2)
     }
     
     return result, metrics_data

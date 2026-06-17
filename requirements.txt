@@ -18,3 +18,4 @@ bitsandbytes
 pandas 
 matplotlib 
 seaborn
+scikit-learn
