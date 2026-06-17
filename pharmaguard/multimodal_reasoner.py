@@ -32,7 +32,7 @@ class MultimodalReasoner:
         For Florence-2, task prompts can be <CAPTION>, <DETAILED_CAPTION>, <MORE_DETAILED_CAPTION>.
         """
         if self.model is None:
-            return f"VLM model not loaded. ERROR: {getattr(self, 'load_error', 'Unknown')}"
+            return self._fallback_description(crop)
         if crop is None or crop.size == 0:
             return "Invalid crop (empty image)."
         
@@ -67,6 +67,21 @@ class MultimodalReasoner:
         )
         
         return parsed_answer.get(task_prompt, str(parsed_answer))
+
+    def _fallback_description(self, crop):
+        if crop is None or crop.size == 0:
+            return "VLM model not loaded. ERROR: Unknown. Invalid crop."
+
+        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+        mean = gray.mean()
+        std = gray.std()
+        dark_spots = np.sum(gray < 50)
+        bright_spots = np.sum(gray > 220)
+        empty_pocket_hint = "likely empty pocket" if mean < 120 and bright_spots < 10 else "no obvious empty pocket detected"
+        return (
+            f"VLM model not loaded. ERROR: {getattr(self, 'load_error', 'Unknown')}. "
+            f"Fallback description: mean intensity={mean:.1f}, contrast={std:.1f}, {empty_pocket_hint}."
+        )
 
     def detect_defects(self, crop):
         """
