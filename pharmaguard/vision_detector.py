@@ -28,7 +28,8 @@ class VisionDetector:
         Returns the annotated frame, a list of cropped objects, and metadata.
         """
         if self.model is None:
-            return frame, [], []
+            # Fallback to full frame if model failed to load
+            return frame, [frame], [{"bbox": [0, 0, frame.shape[1], frame.shape[0]], "confidence": 1.0, "class_id": -1, "track_id": -1}]
         
         # Run YOLO inference with tracking
         results = self.model.track(frame, persist=True, conf=Config.CONFIDENCE_THRESHOLD, verbose=False)
