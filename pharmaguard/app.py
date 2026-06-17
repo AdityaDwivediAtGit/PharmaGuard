@@ -125,9 +125,9 @@ with gr.Blocks(title="PharmaGuard Multimodal Inspector", theme=gr.themes.Soft())
 
 if __name__ == "__main__":
     start_port = int(os.environ.get("GRADIO_SERVER_PORT", 7860))
-    share_mode = os.environ.get("GRADIO_SHARE", "false").lower() in ("1", "true", "yes")
+    share_mode = os.environ.get("GRADIO_SHARE", "true").lower() in ("1", "true", "yes")
     if share_mode:
-        logger.info("GRADIO_SHARE enabled: Gradio will create a public share link.")
+        logger.info("GRADIO_SHARE enabled (default): Gradio will create a public share link.")
 
     for port in range(start_port, start_port + 10):
         try:
@@ -146,12 +146,21 @@ if __name__ == "__main__":
 
             if share_mode:
                 try:
-                    if isinstance(launch_result, tuple) and len(launch_result) >= 3:
-                        public_url = launch_result[2]
-                    else:
+                    public_url = None
+                    if isinstance(launch_result, tuple):
+                        # Gradio returns different tuple shapes depending on version
+                        if len(launch_result) >= 3:
+                            public_url = launch_result[2]
+                        elif len(launch_result) == 2:
+                            public_url = launch_result[1]
+                    if public_url is None:
                         public_url = getattr(launch_result, 'share_url', None)
+                    if public_url is None:
+                        public_url = os.environ.get('GRADIO_SHARE_URL')
                     if public_url:
                         print(f"Public Gradio link: {public_url}")
+                    else:
+                        print("Gradio public share is enabled, but a share URL was not yet available. Watch the terminal output for the public link from Gradio.")
                 except Exception:
                     logger.warning("Unable to print Gradio public share URL from launch result.")
 
