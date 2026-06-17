@@ -97,7 +97,18 @@ Start the Gradio web interface to show the pipeline running in real-time with vi
 ```bash
 python app.py
 ```
-Navigate to `http://127.0.0.1:7860` in your browser.
+
+If you are running in a public notebook environment such as notebooks.amd.com, enable Gradio sharing:
+```bash
+GRADIO_SHARE=1 python app.py
+```
+
+Once started, open the local UI at:
+- `http://127.0.0.1:7860`
+
+If a public link is generated, it will appear in the terminal output after launch.
+
+If port `7860` is unavailable, the app will try the next available port. In that case, check the terminal logs for the exact Gradio URL.
 
 ## Performance & Hardware Optimization
 - **Target Hardware**: AMD MI300X
