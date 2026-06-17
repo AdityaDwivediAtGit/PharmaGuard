@@ -8,7 +8,7 @@ accelerate
 optimum-amd
 vllm
 gradio
-opencv-python-headless
+opencv-python
 ultralytics
 gTTS
 soundfile
