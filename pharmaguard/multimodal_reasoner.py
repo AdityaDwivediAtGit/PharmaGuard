@@ -1,21 +1,24 @@
 import torch
-from transformers import AutoProcessor, AutoModelForCausalLM
+from transformers import BlipProcessor, BlipForQuestionAnswering
 from PIL import Image
 import numpy as np
+import cv2
 from utils import time_it, get_logger, Config
 
 logger = get_logger(__name__)
 
 class MultimodalReasoner:
-    def __init__(self, model_id=Config.VLM_MODEL_ID):
+    def __init__(self, model_id="Salesforce/blip-vqa-base"):
+        # Switched to BLIP VQA because Florence-2 remote code is incompatible with the latest 
+        # transformers required by Qwen2.5, causing the 'forced_bos_token_id' AttributeError.
+        # BLIP is natively supported and runs significantly faster on CPU.
         logger.info(f"Loading VLM model from {model_id}...")
         try:
             self.device = torch.device(Config.DEVICE if torch.cuda.is_available() else "cpu")
-            self.processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
-            self.model = AutoModelForCausalLM.from_pretrained(
+            self.processor = BlipProcessor.from_pretrained(model_id)
+            self.model = BlipForQuestionAnswering.from_pretrained(
                 model_id, 
                 torch_dtype=torch.float16 if self.device.type != "cpu" else torch.float32,
-                trust_remote_code=True
             ).to(self.device)
             logger.info(f"VLM model {model_id} loaded successfully on {self.device}.")
         except Exception as e:
@@ -26,10 +29,9 @@ class MultimodalReasoner:
             self.load_error = str(e)
 
     @time_it
-    def analyze_crop(self, crop, task_prompt="<MORE_DETAILED_CAPTION>"):
+    def analyze_crop(self, crop, task_prompt="Are there any missing, empty, or broken pockets in this blister pack? Answer in detail."):
         """
-        Analyze a cropped image of a blister pack/tablet using Florence-2.
-        For Florence-2, task prompts can be <CAPTION>, <DETAILED_CAPTION>, <MORE_DETAILED_CAPTION>.
+        Analyze a cropped image of a blister pack/tablet using BLIP VQA.
         """
         if self.model is None:
             return self._fallback_description(crop)
@@ -43,7 +45,7 @@ class MultimodalReasoner:
         else:
             image = crop
 
-        inputs = self.processor(text=task_prompt, images=image, return_tensors="pt")
+        inputs = self.processor(image, task_prompt, return_tensors="pt")
         
         # Move inputs to device and handle dtype for pixel_values
         inputs = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
@@ -51,22 +53,12 @@ class MultimodalReasoner:
              inputs["pixel_values"] = inputs["pixel_values"].to(torch.float16)
 
         generated_ids = self.model.generate(
-            input_ids=inputs["input_ids"],
-            pixel_values=inputs["pixel_values"],
-            max_new_tokens=1024,
-            early_stopping=False,
-            do_sample=False,
-            num_beams=3,
+            **inputs,
+            max_new_tokens=100
         )
         
-        generated_text = self.processor.batch_decode(generated_ids, skip_special_tokens=False)[0]
-        parsed_answer = self.processor.post_process_generation(
-            generated_text, 
-            task=task_prompt, 
-            image_size=(image.width, image.height)
-        )
-        
-        return parsed_answer.get(task_prompt, str(parsed_answer))
+        generated_text = self.processor.decode(generated_ids[0], skip_special_tokens=True)
+        return generated_text
 
     def _fallback_description(self, crop):
         if crop is None or crop.size == 0:
