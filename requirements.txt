@@ -15,8 +15,7 @@ pillow
 requests
 tqdm
 bitsandbytes
-pandas 
-matplotlib 
+pandas
+matplotlib
 seaborn
 scikit-learn
-sklearn
