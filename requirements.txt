@@ -19,3 +19,4 @@ pandas
 matplotlib 
 seaborn
 scikit-learn
+sklearn
