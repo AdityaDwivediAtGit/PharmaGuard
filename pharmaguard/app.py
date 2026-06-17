@@ -1,6 +1,7 @@
 import gradio as gr
 import cv2
 import numpy as np
+import os
 import time
 from pipeline import Pipeline
 from utils import get_logger
@@ -123,4 +124,13 @@ with gr.Blocks(title="PharmaGuard Multimodal Inspector", theme=gr.themes.Soft())
             """)
 
 if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=7860, share=False)
+    start_port = int(os.environ.get("GRADIO_SERVER_PORT", 7860))
+    for port in range(start_port, start_port + 10):
+        try:
+            logger.info(f"Starting Gradio on port {port}...")
+            demo.launch(server_name="0.0.0.0", server_port=port, share=False)
+            break
+        except OSError as e:
+            logger.warning(f"Port {port} unavailable: {e}")
+            if port == start_port + 9:
+                raise

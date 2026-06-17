@@ -62,7 +62,12 @@ Unlike standard prototypes, PGMI includes a **Strict Measurement & Business Suit
    cd pharmaguard
    python download_data.py
    ```
-   *(This dynamically generates 10 high-resolution synthetic blister pack images and a ground-truth `labels.json` for strict testing).*
+   *(This dynamically generates 10 high-resolution synthetic blister pack images and a ground-truth `labels.json` for strict testing).* 
+
+> If your system does not have an NVIDIA/ROCm GPU, the app now falls back to CPU for YOLO. Expect slower inference, but the demo should still start.
+
+> If port `7860` is unavailable, the Gradio server will attempt the next open port automatically.
+
 
 ## Step-by-Step Execution Guide
 

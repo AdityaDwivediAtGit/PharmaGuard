@@ -9,10 +9,13 @@ class VisionDetector:
     def __init__(self, model_path=Config.YOLO_MODEL_PATH):
         logger.info(f"Loading YOLO model from {model_path}...")
         try:
-            self.model = YOLO(model_path)
-            # Ensure it uses the appropriate device (CUDA via ROCm)
-            self.model.to(Config.DEVICE)
-            logger.info("YOLO model loaded successfully.")
+            device = Config.DEVICE
+            if device == "cuda" and not torch.cuda.is_available():
+                logger.warning("CUDA is not available; falling back to CPU for YOLO.")
+                device = "cpu"
+            self.model = YOLO(model_path, device=device)
+            self.model.to(device)
+            logger.info(f"YOLO model loaded successfully on {device}.")
         except Exception as e:
             logger.error(f"Failed to load YOLO model: {e}")
             self.model = None
