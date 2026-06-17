@@ -137,32 +137,11 @@ if __name__ == "__main__":
             if share_mode:
                 print("Public Gradio share enabled. Waiting for public link...")
 
-            launch_result = demo.launch(
+            demo.launch(
                 server_name="0.0.0.0",
                 server_port=port,
                 share=share_mode,
-                prevent_thread_lock=True,
             )
-
-            if share_mode:
-                try:
-                    public_url = None
-                    if isinstance(launch_result, tuple):
-                        # Gradio returns different tuple shapes depending on version
-                        if len(launch_result) >= 3:
-                            public_url = launch_result[2]
-                        elif len(launch_result) == 2:
-                            public_url = launch_result[1]
-                    if public_url is None:
-                        public_url = getattr(launch_result, 'share_url', None)
-                    if public_url is None:
-                        public_url = os.environ.get('GRADIO_SHARE_URL')
-                    if public_url:
-                        print(f"Public Gradio link: {public_url}")
-                    else:
-                        print("Gradio public share is enabled, but a share URL was not yet available. Watch the terminal output for the public link from Gradio.")
-                except Exception:
-                    logger.warning("Unable to print Gradio public share URL from launch result.")
 
             break
         except OSError as e:
