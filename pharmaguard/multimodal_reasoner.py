@@ -19,8 +19,11 @@ class MultimodalReasoner:
             ).to(self.device)
             logger.info(f"VLM model {model_id} loaded successfully on {self.device}.")
         except Exception as e:
-            logger.error(f"Failed to load VLM model: {e}")
+            import traceback
+            err_msg = traceback.format_exc()
+            logger.error(f"Failed to load VLM model: {err_msg}")
             self.model = None
+            self.load_error = str(e)
 
     @time_it
     def analyze_crop(self, crop, task_prompt="<MORE_DETAILED_CAPTION>"):
@@ -28,8 +31,10 @@ class MultimodalReasoner:
         Analyze a cropped image of a blister pack/tablet using Florence-2.
         For Florence-2, task prompts can be <CAPTION>, <DETAILED_CAPTION>, <MORE_DETAILED_CAPTION>.
         """
-        if self.model is None or crop is None or crop.size == 0:
-            return "VLM model not loaded or invalid crop."
+        if self.model is None:
+            return f"VLM model not loaded. ERROR: {getattr(self, 'load_error', 'Unknown')}"
+        if crop is None or crop.size == 0:
+            return "Invalid crop (empty image)."
         
         # Convert OpenCV BGR image to RGB PIL Image
         if isinstance(crop, np.ndarray):
