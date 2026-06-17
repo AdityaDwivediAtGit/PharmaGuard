@@ -15,3 +15,6 @@ pillow
 requests
 tqdm
 bitsandbytes
+pandas 
+matplotlib 
+seaborn
