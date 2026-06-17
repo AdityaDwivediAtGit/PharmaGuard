@@ -64,4 +64,15 @@ class VisionDetector:
                             "track_id": track_id
                         })
                         
+        # Fallback: If YOLO (pretrained on COCO) doesn't recognize the blister pack, 
+        # use the full frame so the pipeline can still process it via VLM.
+        if not crops:
+            crops.append(frame)
+            metadata.append({
+                "bbox": [0, 0, frame.shape[1], frame.shape[0]],
+                "confidence": 1.0,
+                "class_id": -1,
+                "track_id": -1
+            })
+            
         return annotated_frame, crops, metadata
