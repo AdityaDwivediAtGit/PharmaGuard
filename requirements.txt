@@ -5,7 +5,6 @@ torchvision
 torchaudio
 transformers
 accelerate
-optimum-amd
 vllm
 gradio
 opencv-python
