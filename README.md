@@ -1,6 +1,6 @@
 # PharmaGuard Multimodal Inspector (PGMI)
 
-**One-liner pitch**: A real-time, multimodal AI agent for detecting defects in pharmaceutical blister packaging, powered by AMD ROCm and Vision-Language Models.
+**One-liner pitch**: A real-time, multimodal AI agent for detecting defects in pharmaceutical blister packaging, using vision and language models (supports optional ROCm/CUDA optimizations).
 
 ## Overview
 PharmaGuard Multimodal Inspector (PGMI) is a production-grade prototype built for the TCS & AMD AI Hackathon 2026 (Track 2 - Multimodal). It performs real-time quality control on blister packaging lines by integrating:
@@ -28,7 +28,7 @@ graph TD
     H --> J[Speech Alert TTS]
 ```
 
-## Setup Instructions (Ubuntu / ROCm 7.2)
+## Setup Instructions (Python)
 
 1. **Clone the repository**:
    ```bash
@@ -36,24 +36,28 @@ graph TD
    cd PharmaGuard
    ```
 
-2. **Create a virtual environment**:
+2. **Create a virtual environment** (Linux/macOS):
    ```bash
    python3 -m venv venv
    source venv/bin/activate
    ```
-
-3. **Install Dependencies (ROCm 7.2 optimized)**:
-   ```bash
-   pip install -r requirements.txt
+   Windows (PowerShell):
+   ```powershell
+   python -m venv venv
+   .\venv\Scripts\Activate.ps1
    ```
-   *Note*: The `requirements.txt` points to `https://download.pytorch.org/whl/rocm7.2`.
 
-4. **Hugging Face Login (For gated models like Llama-3.1)**:
+3. **Install dependencies**:
+   ```bash
+   python -m pip install -r requirements.txt
+   ```
+
+4. **Hugging Face Login (if using gated models)**:
    ```bash
    huggingface-cli login
    ```
 
-5. **Download Demo Data**:
+5. **Download demo data**:
    ```bash
    python download_data.py
    ```
@@ -75,3 +79,29 @@ Then navigate to `http://127.0.0.1:7860` in your browser.
 - **Day 1**: Project scaffolding, YOLOv11 integration, and Gradio UI mockups.
 - **Day 2**: Multimodal VLM integration and LLM Agent reasoning.
 - **Day 3**: Speech module, optimizations (quantization), and end-to-end testing.
+
+## Dependency notes
+
+- The `requirements.txt` was updated to prefer broadly-installable packages (includes `gradio`, `opencv-python`, `ultralytics`, etc.).
+- Platform-specific packages that required ROCm/CUDA builds (for example `optimum-amd` or `vllm`) were removed to avoid build failures in CPU-only environments. If you have ROCm or CUDA available and want those optimizations, add them back and follow the relevant platform install guides.
+
+## Other changes
+
+- Added a `.gitignore` to exclude virtual environments, editor configs, and common build artifacts.
+
+## Business Impact Analysis
+
+The repository includes a small analysis helper at `pharmaguard/business_impact.py` that can:
+
+- Compute simple KPIs: defect rate, average throughput, and a rough OEE uplift estimate.
+- Generate and save charts (`.png`) for defect rate and throughput vs defects.
+
+Quick usage example (from project root):
+
+```bash
+python -c "from pharmaguard.business_impact import ExampleData, BusinessImpact; df=ExampleData.demo_dataframe(); bi=BusinessImpact(df); print(bi.summary()); bi.plot_defect_rate('output/defect_rate.png'); bi.plot_throughput_and_defects('output/throughput_defects.png')"
+```
+
+The example generates demo data for 30 days and writes two PNG charts into `output/`.
+
+If you prefer to run interactively, open a Python REPL after activating your venv and run the same Python snippet.
