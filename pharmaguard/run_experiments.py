@@ -10,6 +10,7 @@ logger = get_logger(__name__)
 
 def run_experiments():
     # Ensure data exists
+    os.makedirs(Config.DATA_DIR, exist_ok=True)
     test_img_path = os.path.join(Config.DATA_DIR, "synthetic_blister_defect.jpg")
     if not os.path.exists(test_img_path):
         generate_synthetic_blister_pack("synthetic_blister_defect.jpg")
