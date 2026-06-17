@@ -1,5 +1,5 @@
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from PIL import Image
 import numpy as np
 import cv2
@@ -17,8 +17,12 @@ class MultimodalReasoner:
             self.revision = "2024-08-26"
             
             self.tokenizer = AutoTokenizer.from_pretrained(model_id, revision=self.revision)
+            config = AutoConfig.from_pretrained(model_id, revision=self.revision, trust_remote_code=True)
+            if not hasattr(config, 'pad_token_id') or config.pad_token_id is None:
+                config.pad_token_id = config.bos_token_id if hasattr(config, 'bos_token_id') else 0
             self.model = AutoModelForCausalLM.from_pretrained(
-                model_id, 
+                model_id,
+                config=config,
                 trust_remote_code=True,
                 revision=self.revision,
                 torch_dtype=torch.float16 if self.device.type != "cpu" else torch.float32,
