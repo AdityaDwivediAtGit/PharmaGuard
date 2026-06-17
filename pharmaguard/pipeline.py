@@ -18,10 +18,11 @@ class Pipeline:
         logger.info(f"Pipeline initialized in {time.time() - start_time:.2f} seconds.")
         
     @time_it
-    def process(self, frame):
+    def process(self, frame, enable_vlm=True, enable_llm=True, enable_speech=True):
         """
         Process a single frame through the entire pipeline.
         Returns the annotated frame, logs, metrics, and any audio alert.
+        Allows disabling components for ablation studies.
         """
         start_time = time.time()
         logs = []
@@ -44,25 +45,33 @@ class Pipeline:
         largest_crop_idx = max(range(len(crops)), key=lambda i: crops[i].shape[0] * crops[i].shape[1])
         crop = crops[largest_crop_idx]
         
-        m_start = time.time()
-        vlm_desc = self.vlm.detect_defects(crop)
-        metrics['vlm_time'] = time.time() - m_start
-        logs.append(f"VLM Description: {vlm_desc}")
+        vlm_desc = "VLM disabled."
+        if enable_vlm:
+            m_start = time.time()
+            vlm_desc = self.vlm.detect_defects(crop)
+            metrics['vlm_time'] = time.time() - m_start
+            logs.append(f"VLM Description: {vlm_desc}")
 
         # 3. LLM Agent Stage
-        l_start = time.time()
-        assessment = self.llm.evaluate_defect(vlm_desc)
-        metrics['llm_time'] = time.time() - l_start
+        is_defect = False
+        severity = "none"
+        action = "pass"
+        reason = "LLM disabled."
         
-        is_defect = assessment.get("defect_detected", False)
-        severity = assessment.get("severity", "none")
-        action = assessment.get("action", "pass")
-        reason = assessment.get("reason", "No reason provided.")
-        
-        logs.append(f"Agent Action: {action.upper()} | Severity: {severity.upper()} | Reason: {reason}")
+        if enable_llm:
+            l_start = time.time()
+            assessment = self.llm.evaluate_defect(vlm_desc)
+            metrics['llm_time'] = time.time() - l_start
+            
+            is_defect = assessment.get("defect_detected", False)
+            severity = assessment.get("severity", "none")
+            action = assessment.get("action", "pass")
+            reason = assessment.get("reason", "No reason provided.")
+            
+            logs.append(f"Agent Action: {action.upper()} | Severity: {severity.upper()} | Reason: {reason}")
 
         # 4. Speech Alert Stage
-        if is_defect and severity in ["medium", "high"]:
+        if enable_speech and is_defect and severity in ["medium", "high"]:
             s_start = time.time()
             alert_text = f"{severity} severity defect detected. Recommended action: {action}. {reason}"
             audio_path = self.speech.generate_alert(alert_text)
