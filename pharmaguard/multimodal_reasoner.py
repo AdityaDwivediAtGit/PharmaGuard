@@ -1,5 +1,5 @@
 import torch
-from transformers import BlipProcessor, BlipForQuestionAnswering
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from PIL import Image
 import numpy as np
 import cv2
@@ -8,18 +8,22 @@ from utils import time_it, get_logger, Config
 logger = get_logger(__name__)
 
 class MultimodalReasoner:
-    def __init__(self, model_id="Salesforce/blip-vqa-base"):
-        # Switched to BLIP VQA because Florence-2 remote code is incompatible with the latest 
-        # transformers required by Qwen2.5, causing the 'forced_bos_token_id' AttributeError.
-        # BLIP is natively supported and runs significantly faster on CPU.
+    def __init__(self, model_id="vikhyatk/moondream2"):
+        # Switched to Moondream2 (1.8B). It provides highly detailed VQA without 
+        # the Florence-2 transformers compatibility bugs, and is small enough for CPU.
         logger.info(f"Loading VLM model from {model_id}...")
         try:
             self.device = torch.device(Config.DEVICE if torch.cuda.is_available() else "cpu")
-            self.processor = BlipProcessor.from_pretrained(model_id)
-            self.model = BlipForQuestionAnswering.from_pretrained(
+            self.revision = "2024-08-26"
+            
+            self.tokenizer = AutoTokenizer.from_pretrained(model_id, revision=self.revision)
+            self.model = AutoModelForCausalLM.from_pretrained(
                 model_id, 
+                trust_remote_code=True,
+                revision=self.revision,
                 torch_dtype=torch.float16 if self.device.type != "cpu" else torch.float32,
             ).to(self.device)
+            
             logger.info(f"VLM model {model_id} loaded successfully on {self.device}.")
         except Exception as e:
             import traceback
@@ -29,12 +33,13 @@ class MultimodalReasoner:
             self.load_error = str(e)
 
     @time_it
-    def analyze_crop(self, crop, task_prompt="Are there any missing, empty, or broken pockets in this blister pack? Answer in detail."):
+    def analyze_crop(self, crop, task_prompt="Describe the condition of this pharmaceutical blister pack in detail. Are any pills missing, broken, or empty?"):
         """
-        Analyze a cropped image of a blister pack/tablet using BLIP VQA.
+        Analyze a cropped image using Moondream2 VQA.
         """
         if self.model is None:
             return self._fallback_description(crop)
+            
         if crop is None or crop.size == 0:
             return "Invalid crop (empty image)."
         
@@ -45,20 +50,11 @@ class MultimodalReasoner:
         else:
             image = crop
 
-        inputs = self.processor(image, task_prompt, return_tensors="pt")
+        # Moondream2 specific inference
+        enc_image = self.model.encode_image(image)
+        answer = self.model.answer_question(enc_image, task_prompt, self.tokenizer)
         
-        # Move inputs to device and handle dtype for pixel_values
-        inputs = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v for k, v in inputs.items()}
-        if "pixel_values" in inputs and self.device.type != "cpu":
-             inputs["pixel_values"] = inputs["pixel_values"].to(torch.float16)
-
-        generated_ids = self.model.generate(
-            **inputs,
-            max_new_tokens=100
-        )
-        
-        generated_text = self.processor.decode(generated_ids[0], skip_special_tokens=True)
-        return generated_text
+        return answer
 
     def _fallback_description(self, crop):
         if crop is None or crop.size == 0:
