@@ -14,7 +14,17 @@ class LLMAgent:
             # Use 4-bit quantization if bitsandbytes is available and running on CUDA
             model_kwargs = {}
             if self.device == 0:
-                model_kwargs["load_in_4bit"] = True
+                try:
+                    from transformers import BitsAndBytesConfig
+                    # Using BitsAndBytesConfig is the standard way to configure quantization
+                    # and avoids passing raw kwargs directly to the model constructor.
+                    model_kwargs["quantization_config"] = BitsAndBytesConfig(
+                        load_in_4bit=True,
+                        bnb_4bit_compute_dtype=torch.float16
+                    )
+                    logger.info("Using 4-bit quantization via BitsAndBytesConfig.")
+                except Exception as e:
+                    logger.warning(f"Could not initialize BitsAndBytesConfig: {e}. Falling back without 4-bit quantization.")
                 
             self.generator = pipeline(
                 "text-generation", 

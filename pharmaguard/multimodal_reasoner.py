@@ -18,8 +18,12 @@ class MultimodalReasoner:
             
             self.tokenizer = AutoTokenizer.from_pretrained(model_id, revision=self.revision)
             config = AutoConfig.from_pretrained(model_id, revision=self.revision, trust_remote_code=True)
-            if not hasattr(config, 'pad_token_id') or config.pad_token_id is None:
-                config.pad_token_id = config.bos_token_id if hasattr(config, 'bos_token_id') else 0
+            # Ensure pad_token_id is set on both main config and nested text_config (PhiConfig)
+            # because the underlying Phi model initialization requires config.pad_token_id on PhiConfig.
+            for cfg in [config, getattr(config, "text_config", None)]:
+                if cfg is not None:
+                    if not hasattr(cfg, 'pad_token_id') or cfg.pad_token_id is None:
+                        cfg.pad_token_id = cfg.bos_token_id if hasattr(cfg, 'bos_token_id') else 0
             self.model = AutoModelForCausalLM.from_pretrained(
                 model_id,
                 config=config,
