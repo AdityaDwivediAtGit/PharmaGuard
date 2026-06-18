@@ -13,6 +13,14 @@ class MultimodalReasoner:
         # the Florence-2 transformers compatibility bugs, and is small enough for CPU.
         logger.info(f"Loading VLM model from {model_id}...")
         try:
+            from transformers.modeling_utils import PreTrainedModel
+            # Monkey-patch for transformers >= 4.45 compatibility with custom models
+            if not hasattr(PreTrainedModel, "all_tied_weights_keys"):
+                def _get_tied_keys(self):
+                    keys = getattr(self, "_tied_weights_keys", [])
+                    return keys if isinstance(keys, dict) else {k: None for k in keys}
+                PreTrainedModel.all_tied_weights_keys = property(_get_tied_keys)
+
             self.device = torch.device(Config.DEVICE if torch.cuda.is_available() else "cpu")
             
             self.tokenizer = AutoTokenizer.from_pretrained(model_id)
