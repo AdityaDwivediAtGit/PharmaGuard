@@ -26,12 +26,15 @@ class MultimodalReasoner:
                     if not hasattr(cfg, 'pad_token_id') or cfg.pad_token_id is None:
                         cfg.pad_token_id = getattr(cfg, 'bos_token_id', 0)
                     
-                    # 2. Fix missing rope_scaling "type" (transformers >= 4.40 changed this to rope_type)
+                    # 2. Fix missing rope_scaling "type" and "factor" (transformers >= 4.40 changed dictionary keys)
                     if hasattr(cfg, 'rope_scaling') and isinstance(cfg.rope_scaling, dict):
-                        if "type" not in cfg.rope_scaling:
-                            # Safely duplicate the dictionary and map rope_type to type
+                        if "type" not in cfg.rope_scaling or "factor" not in cfg.rope_scaling:
+                            # Safely duplicate the dictionary
                             cfg.rope_scaling = dict(cfg.rope_scaling)
-                            cfg.rope_scaling["type"] = cfg.rope_scaling.get("rope_type", "linear")
+                            if "type" not in cfg.rope_scaling:
+                                cfg.rope_scaling["type"] = cfg.rope_scaling.get("rope_type", "linear")
+                            if "factor" not in cfg.rope_scaling:
+                                cfg.rope_scaling["factor"] = cfg.rope_scaling.get("rope_scaling_factor", 1.0)
             self.model = AutoModelForCausalLM.from_pretrained(
                 model_id,
                 config=config,
