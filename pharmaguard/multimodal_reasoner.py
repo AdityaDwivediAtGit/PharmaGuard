@@ -15,11 +15,16 @@ class MultimodalReasoner:
         try:
             from transformers.modeling_utils import PreTrainedModel
             # Monkey-patch for transformers >= 4.45 compatibility with custom models
-            if not hasattr(PreTrainedModel, "all_tied_weights_keys"):
-                def _get_tied_keys(self):
-                    keys = getattr(self, "_tied_weights_keys", [])
-                    return keys if isinstance(keys, dict) else {k: None for k in keys}
-                PreTrainedModel.all_tied_weights_keys = property(_get_tied_keys)
+            if not hasattr(PreTrainedModel, "_patched_for_moondream"):
+                original_finalize = PreTrainedModel._finalize_model_loading
+                @classmethod
+                def _patched_finalize(cls, model, *args, **kwargs):
+                    if not hasattr(model, "all_tied_weights_keys"):
+                        keys = getattr(model, "_tied_weights_keys", [])
+                        model.all_tied_weights_keys = keys if isinstance(keys, dict) else {k: None for k in keys}
+                    return original_finalize.__func__(cls, model, *args, **kwargs)
+                PreTrainedModel._finalize_model_loading = _patched_finalize
+                PreTrainedModel._patched_for_moondream = True
 
             self.device = torch.device(Config.DEVICE if torch.cuda.is_available() else "cpu")
             
