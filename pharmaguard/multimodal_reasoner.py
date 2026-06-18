@@ -20,9 +20,12 @@ class MultimodalReasoner:
                 @classmethod
                 def _patched_finalize(cls, model, *args, **kwargs):
                     if not hasattr(model, "all_tied_weights_keys"):
-                        keys = getattr(model, "_tied_weights_keys", [])
-                        model.all_tied_weights_keys = keys if isinstance(keys, dict) else {k: None for k in keys}
-                    return original_finalize.__func__(cls, model, *args, **kwargs)
+                        keys = getattr(model, "_tied_weights_keys", None) or []
+                        if keys is not None:
+                            model.all_tied_weights_keys = keys if isinstance(keys, dict) else {k: None for k in keys}
+                        else:
+                            model.all_tied_weights_keys = {}
+                    return original_finalize(cls, model, *args, **kwargs)
                 PreTrainedModel._finalize_model_loading = _patched_finalize
                 PreTrainedModel._patched_for_moondream = True
 

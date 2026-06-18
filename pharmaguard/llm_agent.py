@@ -11,27 +11,12 @@ class LLMAgent:
         try:
             self.device = 0 if torch.cuda.is_available() else -1
             
-            # Use 4-bit quantization if bitsandbytes is available and running on CUDA
-            model_kwargs = {}
-            if self.device == 0:
-                try:
-                    from transformers import BitsAndBytesConfig
-                    # Using BitsAndBytesConfig is the standard way to configure quantization
-                    # and avoids passing raw kwargs directly to the model constructor.
-                    model_kwargs["quantization_config"] = BitsAndBytesConfig(
-                        load_in_4bit=True,
-                        bnb_4bit_compute_dtype=torch.float16
-                    )
-                    logger.info("Using 4-bit quantization via BitsAndBytesConfig.")
-                except Exception as e:
-                    logger.warning(f"Could not initialize BitsAndBytesConfig: {e}. Falling back without 4-bit quantization.")
-                
+            # Load pipeline without quantization config to avoid compatibility issues
             self.generator = pipeline(
                 "text-generation", 
                 model=model_id, 
-                device_map="auto", # auto device mapping handles quantization better
-                torch_dtype=torch.float16 if self.device == 0 else torch.float32,
-                model_kwargs=model_kwargs
+                device=self.device,
+                torch_dtype=torch.float16 if self.device == 0 else torch.float32
             )
             logger.info("LLM Agent loaded successfully.")
         except Exception as e:
