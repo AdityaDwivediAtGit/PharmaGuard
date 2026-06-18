@@ -38,6 +38,7 @@ class MultimodalReasoner:
                 config=config,
                 trust_remote_code=True,
                 torch_dtype=torch.float16 if self.device.type != "cpu" else torch.float32,
+                attn_implementation="eager"
             ).to(self.device)
             
             logger.info(f"VLM model {model_id} loaded successfully on {self.device}.")
