@@ -18,12 +18,20 @@ class MultimodalReasoner:
             
             self.tokenizer = AutoTokenizer.from_pretrained(model_id, revision=self.revision)
             config = AutoConfig.from_pretrained(model_id, revision=self.revision, trust_remote_code=True)
-            # Ensure pad_token_id is set on both main config and nested text_config (PhiConfig)
-            # because the underlying Phi model initialization requires config.pad_token_id on PhiConfig.
+            # Ensure pad_token_id and rope_scaling are set on both main config and nested text_config
+            # because the underlying Phi model initialization requires those fields.
             for cfg in [config, getattr(config, "text_config", None)]:
                 if cfg is not None:
+                    # 1. Fix missing pad_token_id
                     if not hasattr(cfg, 'pad_token_id') or cfg.pad_token_id is None:
-                        cfg.pad_token_id = cfg.bos_token_id if hasattr(cfg, 'bos_token_id') else 0
+                        cfg.pad_token_id = getattr(cfg, 'bos_token_id', 0)
+                    
+                    # 2. Fix missing rope_scaling "type" (transformers >= 4.40 changed this to rope_type)
+                    if hasattr(cfg, 'rope_scaling') and isinstance(cfg.rope_scaling, dict):
+                        if "type" not in cfg.rope_scaling:
+                            # Safely duplicate the dictionary and map rope_type to type
+                            cfg.rope_scaling = dict(cfg.rope_scaling)
+                            cfg.rope_scaling["type"] = cfg.rope_scaling.get("rope_type", "linear")
             self.model = AutoModelForCausalLM.from_pretrained(
                 model_id,
                 config=config,
