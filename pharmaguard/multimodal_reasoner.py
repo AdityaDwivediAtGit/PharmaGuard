@@ -25,7 +25,7 @@ class MultimodalReasoner:
                             model.all_tied_weights_keys = keys if isinstance(keys, dict) else {k: None for k in keys}
                         else:
                             model.all_tied_weights_keys = {}
-                    return original_finalize(cls, model, *args, **kwargs)
+                    return original_finalize(model, *args, **kwargs)
                 PreTrainedModel._finalize_model_loading = _patched_finalize
                 PreTrainedModel._patched_for_moondream = True
 
