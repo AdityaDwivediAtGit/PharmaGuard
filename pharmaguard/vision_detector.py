@@ -14,7 +14,7 @@ class VisionDetector:
             if device == "cuda" and not torch.cuda.is_available():
                 logger.warning("CUDA is not available; falling back to CPU for YOLO.")
                 device = "cpu"
-            self.model = YOLO(model_path, device=device)
+            self.model = YOLO(model_path)
             self.model.to(device)
             logger.info(f"YOLO model loaded successfully on {device}.")
         except Exception as e:

@@ -28,13 +28,18 @@ class MultimodalReasoner:
                     
                     # 2. Fix missing rope_scaling "type" and "factor" (transformers >= 4.40 changed dictionary keys)
                     if hasattr(cfg, 'rope_scaling') and isinstance(cfg.rope_scaling, dict):
-                        if "type" not in cfg.rope_scaling or "factor" not in cfg.rope_scaling:
-                            # Safely duplicate the dictionary
-                            cfg.rope_scaling = dict(cfg.rope_scaling)
-                            if "type" not in cfg.rope_scaling:
-                                cfg.rope_scaling["type"] = cfg.rope_scaling.get("rope_type", "linear")
-                            if "factor" not in cfg.rope_scaling:
-                                cfg.rope_scaling["factor"] = cfg.rope_scaling.get("rope_scaling_factor", 1.0)
+                        # If rope_type is "default", Moondream's phi_model expects rope_scaling to be None
+                        r_type = cfg.rope_scaling.get("rope_type", cfg.rope_scaling.get("type"))
+                        if r_type == "default":
+                            cfg.rope_scaling = None
+                        else:
+                            if "type" not in cfg.rope_scaling or "factor" not in cfg.rope_scaling:
+                                # Safely duplicate the dictionary
+                                cfg.rope_scaling = dict(cfg.rope_scaling)
+                                if "type" not in cfg.rope_scaling:
+                                    cfg.rope_scaling["type"] = cfg.rope_scaling.get("rope_type", "linear")
+                                if "factor" not in cfg.rope_scaling:
+                                    cfg.rope_scaling["factor"] = cfg.rope_scaling.get("rope_scaling_factor", 1.0)
             self.model = AutoModelForCausalLM.from_pretrained(
                 model_id,
                 config=config,
