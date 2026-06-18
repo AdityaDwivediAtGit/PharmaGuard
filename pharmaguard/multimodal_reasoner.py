@@ -14,37 +14,13 @@ class MultimodalReasoner:
         logger.info(f"Loading VLM model from {model_id}...")
         try:
             self.device = torch.device(Config.DEVICE if torch.cuda.is_available() else "cpu")
-            self.revision = "2024-08-26"
             
-            self.tokenizer = AutoTokenizer.from_pretrained(model_id, revision=self.revision)
-            config = AutoConfig.from_pretrained(model_id, revision=self.revision, trust_remote_code=True)
-            # Ensure pad_token_id and rope_scaling are set on both main config and nested text_config
-            # because the underlying Phi model initialization requires those fields.
-            for cfg in [config, getattr(config, "text_config", None)]:
-                if cfg is not None:
-                    # 1. Fix missing pad_token_id
-                    if not hasattr(cfg, 'pad_token_id') or cfg.pad_token_id is None:
-                        cfg.pad_token_id = getattr(cfg, 'bos_token_id', 0)
-                    
-                    # 2. Fix missing rope_scaling "type" and "factor" (transformers >= 4.40 changed dictionary keys)
-                    if hasattr(cfg, 'rope_scaling') and isinstance(cfg.rope_scaling, dict):
-                        # If rope_type is "default", Moondream's phi_model expects rope_scaling to be None
-                        r_type = cfg.rope_scaling.get("rope_type", cfg.rope_scaling.get("type"))
-                        if r_type == "default":
-                            cfg.rope_scaling = None
-                        else:
-                            if "type" not in cfg.rope_scaling or "factor" not in cfg.rope_scaling:
-                                # Safely duplicate the dictionary
-                                cfg.rope_scaling = dict(cfg.rope_scaling)
-                                if "type" not in cfg.rope_scaling:
-                                    cfg.rope_scaling["type"] = cfg.rope_scaling.get("rope_type", "linear")
-                                if "factor" not in cfg.rope_scaling:
-                                    cfg.rope_scaling["factor"] = cfg.rope_scaling.get("rope_scaling_factor", 1.0)
+            self.tokenizer = AutoTokenizer.from_pretrained(model_id)
+            config = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
             self.model = AutoModelForCausalLM.from_pretrained(
                 model_id,
                 config=config,
                 trust_remote_code=True,
-                revision=self.revision,
                 torch_dtype=torch.float16 if self.device.type != "cpu" else torch.float32,
             ).to(self.device)
             
